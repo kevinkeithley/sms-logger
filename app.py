@@ -13,11 +13,11 @@ load_dotenv()
 
 app = Flask(__name__)
 AUTHORIZED_NUMBER = os.getenv("AUTHORIZED_NUMBER")
+TAILSCALE_ENDPOINT = os.getenv("TAILSCALE_LOGGER_URL")
 
 
 def normalize_date(date_string):
     date_string = date_string.strip()
-
     if date_string.lower() == "today()":
         return datetime.now(EASTERN).strftime("%Y-%m-%d")
 
@@ -36,7 +36,6 @@ def normalize_date(date_string):
 
 def parse_csv_mileage(message):
     parts = [p.strip() for p in message.split(",")]
-
     if len(parts) != 5 or parts[0].upper() != "MILEAGE":
         return False, "⚠️ Format: MILEAGE, date, name, start|mid|end, distance"
 
@@ -66,7 +65,6 @@ def parse_csv_mileage(message):
 
 def parse_csv_hours(message):
     parts = [p.strip() for p in message.split(",")]
-
     if len(parts) != 4 or parts[0].upper() != "HOURS":
         return False, "⚠️ Format: HOURS, date, hours_today, hours_week_total"
 
@@ -91,9 +89,57 @@ def parse_csv_hours(message):
     }
 
 
+def handle_query(query_text):
+    """Handle query commands and return response text"""
+    query_upper = query_text.strip().upper()
+
+    # Map SMS commands to query types
+    query_map = {
+        "PAYSTATUS": "pay_status",  # Current pay period status
+        "PAYPERIOD": "pay_period",  # Current pay period summary
+        "PAYHISTORY": "pay_history",  # Recent pay periods
+        "MILES": "mileage_today",  # Today's mileage
+        "MILESWEEK": "mileage_summary",  # Week's mileage
+        "TIME": "hours_week",  # This week's hours
+        "COMMANDS": "help",  # List commands (not HELP)
+        "?": "help",  # Alternative
+    }
+
+    # Check for direct command match
+    query_type = query_map.get(query_upper)
+
+    # Check for commands with parameters
+    if not query_type:
+        if query_upper.startswith("MILES "):
+            # Handle "MILES Kevin" or "MILES 2025-06-05"
+            param = query_text[6:].strip()
+            if "-" in param:  # Looks like a date
+                return {"type": "mileage_summary", "date": param}
+            else:  # Assume it's a name
+                return {"type": "mileage_summary", "name": param, "days": 30}
+
+    if query_type == "help":
+        return None, (
+            "📱 Available Commands:\n"
+            "PAYSTATUS - Current pay period\n"
+            "PAYPERIOD - Pay period totals\n"
+            "PAYHISTORY - Recent pay periods\n"
+            "MILES - Today's mileage\n"
+            "MILESWEEK - Week's mileage\n"
+            "TIME - This week's hours\n"
+            "COMMANDS or ? - Show this list\n"
+            "PROCESS - Run processing"
+        )
+
+    if not query_type:
+        return None, "❓ Unknown query. Text HELP for commands."
+
+    return {"type": query_type}, None
+
+
 @app.route("/sms", methods=["POST"])
 def sms_reply():
-    incoming_msg = request.form.get("Body")
+    incoming_msg = request.form.get("Body", "").strip()
     sender = request.form.get("From")
 
     if sender != AUTHORIZED_NUMBER:
@@ -103,29 +149,71 @@ def sms_reply():
     print(f"📩 SMS received from {sender}: {incoming_msg}")
     resp = MessagingResponse()
 
-    if incoming_msg.upper().startswith("MILEAGE"):
-        valid, result = parse_csv_mileage(incoming_msg)
-    elif incoming_msg.upper().startswith("HOURS"):
-        valid, result = parse_csv_hours(incoming_msg)
-    else:
-        resp.message("❓ Unknown command. Try: MILEAGE or HOURS")
-        return Response(str(resp), mimetype="application/xml")
+    # Check if this is a data entry (MILEAGE or HOURS with commas)
+    if "," in incoming_msg:
+        if incoming_msg.upper().startswith("MILEAGE"):
+            valid, result = parse_csv_mileage(incoming_msg)
+            endpoint = "/log"
+        elif incoming_msg.upper().startswith("HOURS"):
+            valid, result = parse_csv_hours(incoming_msg)
+            endpoint = "/log"
+        else:
+            resp.message("❓ Unknown command. Try: MILEAGE or HOURS")
+            return Response(str(resp), mimetype="application/xml")
 
-    if not valid:
-        resp.message(result)
-    else:
-        print(f"✅ Parsed Entry: {result}")
+        if not valid:
+            resp.message(result)
+        else:
+            print(f"✅ Parsed Entry: {result}")
+            try:
+                r = requests.post(TAILSCALE_ENDPOINT + endpoint, json=result, timeout=5)
+                r.raise_for_status()
+                print("✅ Forwarded to local logger.")
+                resp.message("✅ Entry validated and logged.")
+            except Exception as e:
+                print(f"❌ Error forwarding to logger: {e}")
+                resp.message("⚠️ Validated, but failed to log. Please try again later.")
+
+    # Check if this is PROCESS command
+    elif incoming_msg.upper() == "PROCESS":
         try:
-            TAILSCALE_ENDPOINT = os.getenv("TAILSCALE_LOGGER_URL")
-            r = requests.post(TAILSCALE_ENDPOINT, json=result, timeout=5)
+            r = requests.post(TAILSCALE_ENDPOINT + "/process", json={}, timeout=10)
             r.raise_for_status()
-            print("✅ Forwarded to local logger.")
-            resp.message("✅ Entry validated and logged.")
+            result = r.json()
+            resp.message(
+                f"✅ Processed {result['processed']['total']} entries\n"
+                f"Mileage: {result['processed']['mileage']}, "
+                f"Hours: {result['processed']['hours']}"
+            )
         except Exception as e:
-            print(f"❌ Error forwarding to logger: {e}")
-            resp.message("⚠️ Validated, but failed to log. Please try again later.")
+            print(f"❌ Error triggering process: {e}")
+            resp.message("⚠️ Failed to process. Check logs.")
+
+    # Otherwise, treat as a query
+    else:
+        query_data, help_text = handle_query(incoming_msg)
+
+        if help_text:
+            resp.message(help_text)
+        else:
+            try:
+                r = requests.post(
+                    TAILSCALE_ENDPOINT + "/query", json=query_data, timeout=5
+                )
+                r.raise_for_status()
+                response_data = r.json()
+                resp.message(response_data.get("message", "No data found"))
+            except Exception as e:
+                print(f"❌ Error querying: {e}")
+                resp.message("⚠️ Query failed. Try again later.")
 
     return Response(str(resp), mimetype="application/xml")
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Health check endpoint for Fly.io"""
+    return {"status": "healthy"}, 200
 
 
 if __name__ == "__main__":

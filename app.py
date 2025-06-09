@@ -98,6 +98,7 @@ def handle_query(query_text):
         "PAYSTATUS": "pay_status",  # Current pay period status
         "PAYPERIOD": "pay_period",  # Current pay period summary
         "PAYHISTORY": "pay_history",  # Recent pay periods
+        "HOURSCHECK": "hours_check",  # Validate hours
         "MILES": "mileage_today",  # Today's mileage
         "MILESWEEK": "mileage_summary",  # Week's mileage
         "TIME": "hours_week",  # This week's hours
@@ -124,6 +125,7 @@ def handle_query(query_text):
             "PAYSTATUS - Current pay period\n"
             "PAYPERIOD - Pay period totals\n"
             "PAYHISTORY - Recent pay periods\n"
+            "HOURSCHECK - Validate hours\n"
             "MILES - Today's mileage\n"
             "MILESWEEK - Week's mileage\n"
             "TIME - This week's hours\n"

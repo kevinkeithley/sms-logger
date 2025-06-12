@@ -13,7 +13,7 @@ load_dotenv()
 
 app = Flask(__name__)
 AUTHORIZED_NUMBER = os.getenv("AUTHORIZED_NUMBER")
-TAILSCALE_ENDPOINT = os.getenv("TAILSCALE_LOGGER_URL")
+SMS_LOGGER_BACKEND_URL = os.getenv("SMS_LOGGER_BACKEND_URL")
 
 
 def normalize_date(date_string):
@@ -168,7 +168,7 @@ def sms_reply():
         else:
             print(f"✅ Parsed Entry: {result}")
             try:
-                r = requests.post(TAILSCALE_ENDPOINT + endpoint, json=result, timeout=5)
+                r = requests.post(SMS_LOGGER_BACKEND_URL + endpoint, json=result, timeout=5)
                 r.raise_for_status()
                 print("✅ Forwarded to local logger.")
                 resp.message("✅ Entry validated and logged.")
@@ -179,7 +179,7 @@ def sms_reply():
     # Check if this is PROCESS command
     elif incoming_msg.upper() == "PROCESS":
         try:
-            r = requests.post(TAILSCALE_ENDPOINT + "/process", json={}, timeout=10)
+            r = requests.post(SMS_LOGGER_BACKEND_URL + "/process", json={}, timeout=10)
             r.raise_for_status()
             result = r.json()
             resp.message(
@@ -200,7 +200,7 @@ def sms_reply():
         else:
             try:
                 r = requests.post(
-                    TAILSCALE_ENDPOINT + "/query", json=query_data, timeout=5
+                    SMS_LOGGER_BACKEND_URL + "/query", json=query_data, timeout=5
                 )
                 r.raise_for_status()
                 response_data = r.json()

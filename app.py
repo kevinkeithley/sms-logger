@@ -96,8 +96,7 @@ def handle_query(query_text):
     # Map SMS commands to query types
     query_map = {
         "PAYSTATUS": "pay_status",  # Current pay period status
-        "PAYPERIOD": "pay_period",  # Current pay period summary
-        "PAYHISTORY": "pay_history",  # Recent pay periods
+        "PAYDETAIL": "pay_detail",  # Current pay period summary
         "HOURSCHECK": "hours_check",  # Validate hours
         "MILES": "mileage_today",  # Today's mileage
         "MILESWEEK": "mileage_summary",  # Week's mileage
@@ -123,8 +122,7 @@ def handle_query(query_text):
         return None, (
             "📱 Available Commands:\n"
             "PAYSTATUS - Current pay period\n"
-            "PAYPERIOD - Pay period totals\n"
-            "PAYHISTORY - Recent pay periods\n"
+            "PAYDETAIL - Daily hours breakdown\n"
             "HOURSCHECK - Validate hours\n"
             "MILES - Today's mileage\n"
             "MILESWEEK - Week's mileage\n"

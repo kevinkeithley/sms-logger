@@ -18,8 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy rest of app
 COPY . .
 
-# Copy WireGuard config
-COPY wg0.conf /etc/wireguard/wg0.conf
 
 # Create start script
 COPY start.sh /start.sh
